@@ -47,6 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.showPanel()
 
         appState.startSessionDiscovery()
+        appState.startYabaiSpaceMonitoring()
         appState.startCodexAppServerWatcher()
         RemoteManager.shared.startup()
 
@@ -137,6 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RemoteManager.shared.shutdown()
         hookServer?.stop()
         appState.stopCodexAppServerWatcher()
+        appState.stopYabaiSpaceMonitoring()
         appState.stopSessionDiscovery()
     }
 
