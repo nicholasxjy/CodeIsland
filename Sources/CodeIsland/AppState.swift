@@ -105,6 +105,8 @@ final class AppState {
     /// Preview-only: mock question payload for DebugHarness (no continuation needed)
     var previewQuestionPayload: QuestionPayload?
     var surface: IslandSurface = .collapsed
+    var yabaiSpaceSnapshot: YabaiSpaceSnapshot?
+    var yabaiSpaceTransition: YabaiSpaceTransition?
 
     var justCompletedSessionId: String? {
         if case .completionCard(let id) = surface { return id }
@@ -138,6 +140,10 @@ final class AppState {
         }
     }
     private var modelReadRetryAt: [String: Date] = [:]
+    @ObservationIgnored
+    private var yabaiSpaceMonitor: YabaiSpaceMonitor?
+    @ObservationIgnored
+    private var yabaiTransitionClearTask: Task<Void, Never>?
 
     private var dismissedPermissionSessionIds: Set<String> = []
     private func nextVisiblePermissionIndex() -> Int? {
@@ -2164,6 +2170,51 @@ final class AppState {
         startProjectsWatcher()
     }
 
+    func startYabaiSpaceMonitoring() {
+        if yabaiSpaceMonitor == nil {
+            yabaiSpaceMonitor = YabaiSpaceMonitor(appState: self)
+        }
+        yabaiSpaceMonitor?.start()
+    }
+
+    func stopYabaiSpaceMonitoring() {
+        yabaiSpaceMonitor?.stop()
+        yabaiSpaceMonitor = nil
+        yabaiTransitionClearTask?.cancel()
+        yabaiTransitionClearTask = nil
+    }
+
+    func updateYabaiSpaceSnapshot(_ snapshot: YabaiSpaceSnapshot?) {
+        guard let snapshot else {
+            yabaiSpaceSnapshot = nil
+            yabaiSpaceTransition = nil
+            yabaiTransitionClearTask?.cancel()
+            yabaiTransitionClearTask = nil
+            return
+        }
+
+        let previousIndex = yabaiSpaceSnapshot?.currentIndex
+        yabaiSpaceSnapshot = snapshot
+
+        guard let currentIndex = snapshot.currentIndex,
+              let previousIndex,
+              previousIndex != currentIndex else {
+            return
+        }
+
+        yabaiSpaceTransition = YabaiSpaceTransition(
+            fromIndex: previousIndex,
+            toIndex: currentIndex,
+            toLabel: snapshot.currentLabel
+        )
+        yabaiTransitionClearTask?.cancel()
+        yabaiTransitionClearTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            self?.yabaiSpaceTransition = nil
+        }
+    }
+
     /// FSEventStream on known session-store roots — fires when transcript/event files change.
     private func startProjectsWatcher() {
         guard fsEventStream == nil else { return }
@@ -2624,6 +2675,8 @@ final class AppState {
         rotationTimer?.invalidate()
         cleanupTimer?.invalidate()
         saveTimer?.invalidate()
+        yabaiSpaceMonitor?.stop()
+        yabaiTransitionClearTask?.cancel()
         if let stream = fsEventStream {
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
