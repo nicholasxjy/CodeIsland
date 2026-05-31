@@ -75,9 +75,13 @@ esac
 chmod +x "$CONTENTS_DIR/MacOS/CodeIsland" "$CONTENTS_DIR/Helpers/codeisland-bridge"
 
 # Write Info.plist (use the root Info.plist as base, update version)
-CURRENT_VER=$(defaults read "$REPO_ROOT/Info.plist" CFBundleShortVersionString)
-sed -e "s/<string>${CURRENT_VER}<\/string>/<string>${VERSION}<\/string>/g" \
-    "$REPO_ROOT/Info.plist" > "$CONTENTS_DIR/Info.plist"
+cp "$REPO_ROOT/Info.plist" "$CONTENTS_DIR/Info.plist"
+if ! /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS_DIR/Info.plist" 2>/dev/null; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$CONTENTS_DIR/Info.plist"
+fi
+if ! /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$CONTENTS_DIR/Info.plist" 2>/dev/null; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $VERSION" "$CONTENTS_DIR/Info.plist"
+fi
 
 # Compile app icon and asset catalog
 xcrun actool \
