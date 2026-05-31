@@ -75,9 +75,13 @@ esac
 chmod +x "$CONTENTS_DIR/MacOS/CodeIsland" "$CONTENTS_DIR/Helpers/codeisland-bridge"
 
 # Write Info.plist (use the root Info.plist as base, update version)
-CURRENT_VER=$(defaults read "$REPO_ROOT/Info.plist" CFBundleShortVersionString)
-sed -e "s/<string>${CURRENT_VER}<\/string>/<string>${VERSION}<\/string>/g" \
-    "$REPO_ROOT/Info.plist" > "$CONTENTS_DIR/Info.plist"
+cp "$REPO_ROOT/Info.plist" "$CONTENTS_DIR/Info.plist"
+if ! /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS_DIR/Info.plist" 2>/dev/null; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$CONTENTS_DIR/Info.plist"
+fi
+if ! /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$CONTENTS_DIR/Info.plist" 2>/dev/null; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $VERSION" "$CONTENTS_DIR/Info.plist"
+fi
 
 # Compile app icon and asset catalog
 xcrun actool \
@@ -224,18 +228,28 @@ echo "==> Creating DMG"
 # Remove previous DMG if exists
 rm -f "$OUTPUT_DMG"
 
-create-dmg \
-    --volname "CodeIsland ${VERSION}" \
-    --window-pos 200 120 \
-    --window-size 600 400 \
-    --icon-size 100 \
-    --icon "CodeIsland.app" 175 190 \
-    --hide-extension "CodeIsland.app" \
-    --app-drop-link 425 190 \
-    --no-internet-enable \
-    --sandbox-safe \
-    "$OUTPUT_DMG" \
-    "$STAGING_DIR/"
+if command -v create-dmg >/dev/null 2>&1; then
+    create-dmg \
+        --volname "CodeIsland ${VERSION}" \
+        --window-pos 200 120 \
+        --window-size 600 400 \
+        --icon-size 100 \
+        --icon "CodeIsland.app" 175 190 \
+        --hide-extension "CodeIsland.app" \
+        --app-drop-link 425 190 \
+        --no-internet-enable \
+        --sandbox-safe \
+        "$OUTPUT_DMG" \
+        "$STAGING_DIR/"
+else
+    echo "==> create-dmg not found; using hdiutil fallback"
+    hdiutil create \
+        -volname "CodeIsland ${VERSION}" \
+        -srcfolder "$STAGING_DIR" \
+        -ov \
+        -format UDZO \
+        "$OUTPUT_DMG"
+fi
 
 # Codesign the DMG container itself. Without this `spctl --assess` reports
 # "no usable signature" on the dmg even when the inner .app is properly

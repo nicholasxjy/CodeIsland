@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.0.29] - 2026-05-31
+
+### English
+- Add yabai Space indicator support in the panel.
+- Fix Warp click-to-jump so tab activation works across windows and tabs (#205).
+- Clean stale remote sockets before `ssh -R` forwarding to avoid blocked remote reconnects (#206, #207).
+- Add a latest-DMG packaging script and make DMG creation fall back to `hdiutil` when `create-dmg` is unavailable.
+
+### 中文
+- 新增面板里的 yabai Space 指示器支持。
+- 修复 Warp 点击跳转在多窗口、多标签场景下的标签激活问题 (#205)。
+- `ssh -R` 转发前会清理远程残留 socket，避免远程重连被旧 socket 阻塞 (#206, #207)。
+- 新增最新 DMG 打包脚本，并在没有 `create-dmg` 时自动降级使用 `hdiutil` 创建 DMG。
+
 ## [v1.0.27] - 2026-05-30
 
 ### English
