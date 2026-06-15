@@ -1433,8 +1433,22 @@ final class AppState {
 
     func answerQuestion(_ answer: String) {
         guard !questionQueue.isEmpty else { return }
-        // AskUserQuestion uses batch wizard — direct single answers are not processed
-        if questionQueue[0].isFromPermission, questionQueue[0].askUserQuestionState != nil {
+        // Multi-question wizards (AskUserQuestion, Codex app-server) use the batch
+        // path — direct single answers are not processed.
+        if questionQueue[0].askUserQuestionState != nil,
+           (questionQueue[0].isFromPermission || questionQueue[0].isCodexAppServer) {
+            return
+        }
+        // Codex app-server questions reply over the JSON-RPC client, not a hook.
+        if questionQueue[0].isCodexAppServer {
+            let pending = questionQueue.removeFirst()
+            let answerKey = pending.askUserQuestionState?.items.first?.answerKey
+                ?? pending.question.header ?? "answer"
+            pending.resolveCodexAppServer([answerKey: [answer]])
+            let sessionId = pending.event.sessionId ?? "default"
+            sessions[sessionId]?.status = .processing
+            showNextPending()
+            refreshDerivedState()
             return
         }
         let pending = questionQueue.removeFirst()
@@ -1466,7 +1480,7 @@ final class AppState {
             ]
             responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         }
-        pending.continuation.resume(returning: responseData)
+        pending.resolution.resumeHook(returning: responseData)
         let sessionId = pending.event.sessionId ?? "default"
         sessions[sessionId]?.status = .processing
 
@@ -1476,6 +1490,26 @@ final class AppState {
 
     func answerQuestionMulti(_ answers: [(question: String, answer: String)]) {
         guard !questionQueue.isEmpty else { return }
+        // Codex app-server questions reply over the JSON-RPC client, not a hook.
+        if questionQueue[0].isCodexAppServer {
+            let pending = questionQueue.removeFirst()
+            var answersByKey: [String: [String]] = [:]
+            if let askState = pending.askUserQuestionState {
+                // Match by position — the wizard collects answers in item order.
+                for (index, item) in askState.items.enumerated() where index < answers.count {
+                    answersByKey[item.answerKey] = [answers[index].answer]
+                }
+            } else {
+                let answerKey = pending.question.header ?? "answer"
+                answersByKey[answerKey] = [answers.first?.answer ?? ""]
+            }
+            pending.resolveCodexAppServer(answersByKey)
+            let sessionId = pending.event.sessionId ?? "default"
+            sessions[sessionId]?.status = .processing
+            showNextPending()
+            refreshDerivedState()
+            return
+        }
         let pending = questionQueue.removeFirst()
         let responseData: Data
         if pending.isFromPermission {
@@ -1516,7 +1550,7 @@ final class AppState {
             ]
             responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         }
-        pending.continuation.resume(returning: responseData)
+        pending.resolution.resumeHook(returning: responseData)
         let sessionId = pending.event.sessionId ?? "default"
         sessions[sessionId]?.status = .processing
 
@@ -1547,13 +1581,19 @@ final class AppState {
     func skipQuestion() {
         guard !questionQueue.isEmpty else { return }
         let pending = questionQueue.removeFirst()
-        let responseData: Data
-        if pending.isFromPermission {
-            responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+        if pending.isCodexAppServer {
+            // No "skip" verb in the Codex protocol — abandon the request so the
+            // server stops waiting (it will re-prompt or fall back to its TUI).
+            pending.resolveCodexAppServer(nil)
         } else {
-            responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"Notification"}}"#.utf8)
+            let responseData: Data
+            if pending.isFromPermission {
+                responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+            } else {
+                responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"Notification"}}"#.utf8)
+            }
+            pending.resolution.resumeHook(returning: responseData)
         }
-        pending.continuation.resume(returning: responseData)
         let sessionId = pending.event.sessionId ?? "default"
         sessions[sessionId]?.status = .processing
 
@@ -1596,13 +1636,16 @@ final class AppState {
     private func drainQuestions(forSession sessionId: String, reason: String = "unknown") {
         questionQueue.removeAll { item in
             guard item.event.sessionId == sessionId else { return false }
-            if item.isFromPermission {
+            if item.isCodexAppServer {
+                // Abandon the Codex app-server request so the server stops waiting.
+                item.resolveCodexAppServer(nil)
+            } else if item.isFromPermission {
                 log.notice("⚠️ permission deny reason=drainQuestions(\(reason, privacy: .public)) session=\(sessionId, privacy: .public) tool=AskUserQuestion")
                 let denyData = Data(
                     #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
-                item.continuation.resume(returning: denyData)
+                item.resolution.resumeHook(returning: denyData)
             } else {
-                item.continuation.resume(returning: Data("{}".utf8))
+                item.resolution.resumeHook(returning: Data("{}".utf8))
             }
             return true
         }

@@ -231,7 +231,11 @@ extension AppState {
             let sessionId = pending.event.sessionId ?? activeSessionId ?? "default"
             let pendingSession = sessions[sessionId]
             var messages = pendingSession?.recentMessages ?? []
-            let questionText = pending.question.question.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Secret prompts (Codex `isSecret`) must not stream their text off-device. (#209)
+            let rawQuestionText = pending.question.isSecret
+                ? Self.secretQuestionPlaceholder
+                : pending.question.question
+            let questionText = rawQuestionText.trimmingCharacters(in: .whitespacesAndNewlines)
             if !questionText.isEmpty && messages.last?.text != questionText {
                 messages.append(ChatMessage(isUser: true, text: questionText))
             }
@@ -433,6 +437,19 @@ extension AppState {
         if let askState = pending.askUserQuestionState, !askState.items.isEmpty {
             let index = askState.items.firstIndex { askState.answers[$0.answerKey] == nil } ?? 0
             let item = askState.items[index]
+            // Secret prompts (Codex `isSecret`) must not stream their text/options
+            // off-device — answer on the Mac instead. (#209)
+            if item.payload.isSecret {
+                return AppleCompanionQuestionPayload(
+                    header: item.payload.header,
+                    question: Self.secretQuestionPlaceholder,
+                    options: [],
+                    descriptions: [],
+                    index: index + 1,
+                    total: askState.items.count,
+                    allowsMultipleSelection: item.multiSelect
+                )
+            }
             return AppleCompanionQuestionPayload(
                 header: item.payload.header,
                 question: item.payload.question,
@@ -441,6 +458,18 @@ extension AppState {
                 index: index + 1,
                 total: askState.items.count,
                 allowsMultipleSelection: item.multiSelect
+            )
+        }
+
+        if pending.question.isSecret {
+            return AppleCompanionQuestionPayload(
+                header: pending.question.header,
+                question: Self.secretQuestionPlaceholder,
+                options: [],
+                descriptions: [],
+                index: 1,
+                total: 1,
+                allowsMultipleSelection: false
             )
         }
 
@@ -454,6 +483,9 @@ extension AppState {
             allowsMultipleSelection: false
         )
     }
+
+    /// Shown to remote peripherals in place of a secret prompt's real text.
+    private static let secretQuestionPlaceholder = "Sensitive prompt — answer on Mac"
 
     private static func appleCompanionPreviewText(_ text: String?) -> String {
         guard let text else { return "" }
