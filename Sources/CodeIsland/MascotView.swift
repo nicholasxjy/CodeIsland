@@ -19,6 +19,7 @@ struct MascotView: View {
     let status: MascotAgentStatus
     var size: CGFloat = 27
     @AppStorage(SettingsKey.mascotSpeed) private var speedPct = SettingsDefaults.mascotSpeed
+    @ObservedObject private var animationGate = MascotAnimationGate.shared
 
     var body: some View {
         Group {
@@ -64,5 +65,7 @@ struct MascotView: View {
             }
         }
         .environment(\.mascotSpeed, Double(speedPct) / 100.0)
+        .environment(\.mascotAnimationsActive, animationGate.animationsActive)
+        .environment(\.mascotAnimationEpoch, animationGate.epoch)
     }
 }
