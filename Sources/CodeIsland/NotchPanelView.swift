@@ -37,7 +37,7 @@ struct NotchPanelView: View {
     /// First launch / no-session state should still render a visible marker so the app
     /// doesn't disappear completely behind the physical notch.
     private var showIdleIndicator: Bool {
-        !isActive && !hideWhenNoSession
+        !isActive && (!hideWhenNoSession || appState.yabaiSpaceSnapshot != nil)
     }
     /// Whether the bar content should be visible (respects hideWhenNoSession)
     private var showBar: Bool {
@@ -52,6 +52,7 @@ struct NotchPanelView: View {
 
     /// Minimum wing width needed to display compact bar content
     private var compactWingWidth: CGFloat { mascotSize + 14 }
+    private var spacePillWidth: CGFloat { appState.yabaiSpaceSnapshot == nil ? 0 : 116 }
 
     /// Effective island width — applies user scale on both notch and non-notch screens.
     private var effectiveNotchW: CGFloat {
@@ -65,14 +66,16 @@ struct NotchPanelView: View {
     private var panelWidth: CGFloat {
         let nw = effectiveNotchW
         let maxWidth = min(620, screenWidth - 40)
-        if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
+        if showIdleIndicator {
+            return idleHovered ? nw + compactWingWidth * 2 + 80 + spacePillWidth : nw + compactWingWidth * 2 + spacePillWidth
+        }
         if !isActive { return hasNotch ? nw - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxWidth) }
         let wing = compactWingWidth
         let extra: CGFloat = appState.status == .idle ? 0 : 20
         // Reserve space for tool status — proportional to screen width
         let toolExtra: CGFloat = displayedToolStatus ? (hasNotch ? screenWidth * 0.03 : screenWidth * 0.04) : 0
-        return nw + wing * 2 + extra + toolExtra
+        return nw + wing * 2 + extra + toolExtra + spacePillWidth
     }
 
     var body: some View {
@@ -95,6 +98,7 @@ struct NotchPanelView: View {
                     .frame(height: notchHeight)
                 } else if showIdleIndicator {
                     IdleIndicatorBar(
+                        appState: appState,
                         mascotSize: mascotSize,
                         compactWingWidth: compactWingWidth,
                         notchW: effectiveNotchW,
@@ -481,6 +485,11 @@ private struct CompactRightWing: View {
                     }
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                 }
+
+                CompactSpacePill(
+                    snapshot: appState.yabaiSpaceSnapshot,
+                    transition: appState.yabaiSpaceTransition
+                )
             }
         }
         .padding(.trailing, 6)
@@ -629,9 +638,136 @@ private struct NotchIconButton: View {
     }
 }
 
+// MARK: - Yabai Space Status
+
+private struct CompactSpacePill: View {
+    let snapshot: YabaiSpaceSnapshot?
+    let transition: YabaiSpaceTransition?
+
+    private var text: String? {
+        guard let snapshot, let current = snapshot.currentIndex else { return nil }
+        if let transition {
+            return "\(transition.fromIndex.map(String.init) ?? "?")->\(transition.toIndex)\(suffix(transition.toLabel))"
+        }
+        return "\(current)/\(snapshot.total)\(suffix(snapshot.currentLabel))"
+    }
+
+    var body: some View {
+        if let text {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(Color(red: 0.48, green: 1.0, blue: 0.55))
+                    .frame(width: 5, height: 5)
+                    .opacity(transition == nil ? 0.85 : 1.0)
+                MorphText(
+                    text: text,
+                    font: .system(size: 11, weight: .bold, design: .monospaced),
+                    color: transition == nil ? .white.opacity(0.92) : Color(red: 0.48, green: 1.0, blue: 0.55)
+                )
+                .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(transition == nil ? Color.white.opacity(0.07) : Color(red: 0.18, green: 0.55, blue: 0.22).opacity(0.22))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(transition == nil ? Color.white.opacity(0.10) : Color(red: 0.48, green: 1.0, blue: 0.55).opacity(0.35), lineWidth: 1)
+            )
+            .animation(NotchAnimation.micro, value: transition)
+            .help("yabai space")
+        }
+    }
+
+    private func suffix(_ label: String?) -> String {
+        guard let label, !label.isEmpty else { return "" }
+        return " \(String(label.prefix(8)).uppercased())"
+    }
+}
+
+private struct YabaiSpaceStrip: View {
+    let snapshot: YabaiSpaceSnapshot
+    let transition: YabaiSpaceTransition?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Text("SPACES")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45))
+                Spacer()
+                if let current = snapshot.currentIndex {
+                    MorphText(
+                        text: transitionText(current: current),
+                        font: .system(size: 10, weight: .semibold, design: .monospaced),
+                        color: transition == nil ? .white.opacity(0.58) : Color(red: 0.48, green: 1.0, blue: 0.55)
+                    )
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    ForEach(snapshot.spaces) { space in
+                        SpaceStripItem(
+                            space: space,
+                            total: snapshot.total,
+                            isTransitionTarget: transition?.toIndex == space.index
+                        )
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .background(Color.white.opacity(0.025))
+    }
+
+    private func transitionText(current: Int) -> String {
+        guard let transition else { return "current: \(current) / \(snapshot.total)" }
+        return "switch: \(transition.fromIndex.map(String.init) ?? "?") -> \(transition.toIndex)"
+    }
+}
+
+private struct SpaceStripItem: View {
+    let space: YabaiSpaceInfo
+    let total: Int
+    let isTransitionTarget: Bool
+
+    private var isActive: Bool { space.isFocused }
+    private var title: String {
+        guard let label = space.label else { return "\(space.index)" }
+        return "\(space.index) \(String(label.prefix(6)).uppercased())"
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+            .foregroundStyle(isActive ? Color.black.opacity(0.9) : .white.opacity(0.72))
+            .lineLimit(1)
+            .padding(.horizontal, space.label == nil ? 9 : 10)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isActive ? Color(red: 0.48, green: 1.0, blue: 0.55) : Color.white.opacity(0.055))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(isTransitionTarget ? Color(red: 0.48, green: 1.0, blue: 0.55).opacity(0.65) : Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .scaleEffect(isTransitionTarget ? 1.04 : 1.0)
+            .animation(NotchAnimation.micro, value: isActive)
+            .animation(NotchAnimation.micro, value: isTransitionTarget)
+            .help("space \(space.index) of \(total)")
+    }
+}
+
 // MARK: - Idle Indicator Bar
 
 private struct IdleIndicatorBar: View {
+    var appState: AppState
     let mascotSize: CGFloat
     let compactWingWidth: CGFloat
     let notchW: CGFloat
@@ -653,9 +789,14 @@ private struct IdleIndicatorBar: View {
 
             Spacer(minLength: hasNotch ? notchW : 0)
 
-            // Right: expanded shows text + buttons, collapsed shows nothing
-            if hovered {
-                HStack(spacing: 8) {
+            // Right: always show current space when available; hover reveals app controls.
+            HStack(spacing: 8) {
+                CompactSpacePill(
+                    snapshot: appState.yabaiSpaceSnapshot,
+                    transition: appState.yabaiSpaceTransition
+                )
+
+                if hovered {
                     Text("0")
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.4))
@@ -671,10 +812,10 @@ private struct IdleIndicatorBar: View {
                             NSApplication.shared.terminate(nil)
                         }
                     }
+                    .transition(.opacity)
                 }
-                .padding(.trailing, 6)
-                .transition(.opacity)
             }
+            .padding(.trailing, 6)
         }
         .frame(height: notchHeight)
         .animation(NotchAnimation.micro, value: hovered)
@@ -1624,6 +1765,13 @@ private struct SessionListView: View {
         let totalSessionCount = groups.reduce(0) { $0 + $1.ids.count }
         let needsScroll = onlySessionId == nil && totalSessionCount > maxVisibleSessions
         let content = VStack(spacing: 6) {
+            if let spaceSnapshot = appState.yabaiSpaceSnapshot {
+                YabaiSpaceStrip(
+                    snapshot: spaceSnapshot,
+                    transition: appState.yabaiSpaceTransition
+                )
+            }
+
             ForEach(groups, id: \.header) { group in
                 if !group.header.isEmpty {
                     HStack(spacing: 6) {

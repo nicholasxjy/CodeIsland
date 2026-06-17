@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.0.30] - 2026-06-16
+
+### English
+- Add yabai Space indicator support in the panel.
+- Add a latest-DMG packaging script that reads the version from `Info.plist`.
+- Make DMG creation fall back to `hdiutil` when `create-dmg` is unavailable.
+
+### 中文
+- 新增面板里的 yabai Space 指示器支持。
+- 新增读取 `Info.plist` 版本号的最新 DMG 打包脚本。
+- 在没有 `create-dmg` 时自动降级使用 `hdiutil` 创建 DMG。
+
 ## [v1.0.28] - 2026-06-15
 
 ### English
