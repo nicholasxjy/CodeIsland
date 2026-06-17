@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.0.31] - 2026-06-17
+
+### English
+- Fix the Pi / OMP mascot option so it appears correctly in Settings.
+
+### 中文
+- 修复设置中 Pi / OMP 吉祥物选项无法正确显示的问题。
+
 ## [v1.0.30] - 2026-06-16
 
 ### English
