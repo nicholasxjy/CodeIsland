@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.0.32] - 2026-06-24
+
+### English
+- Bump the macOS app release version to 1.0.32.
+- Fix duplicate entitlements entry so local release signing succeeds.
+
+### 中文
+- 将 macOS App 发布版本更新到 1.0.32。
+- 修复重复的 entitlements 条目，保证本地发布签名可以完成。
+
 ## [v1.0.31] - 2026-06-17
 
 ### English
