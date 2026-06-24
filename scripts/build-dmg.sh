@@ -92,6 +92,20 @@ xcrun actool \
     "$REPO_ROOT/Assets.xcassets" \
     "$REPO_ROOT/AppIcon.icon"
 
+# Finder still relies on CFBundleIconFile/AppIcon.icns for some copied or
+# unsigned bundles. Keep a checked-in fallback so CI artifacts do not regress to
+# the generic app icon if actool changes its AppIcon.icon output behavior.
+if [ ! -s "$CONTENTS_DIR/Resources/AppIcon.icns" ]; then
+    if [ -s "$REPO_ROOT/Sources/CodeIsland/Resources/AppIcon.icns" ]; then
+        cp "$REPO_ROOT/Sources/CodeIsland/Resources/AppIcon.icns" \
+            "$CONTENTS_DIR/Resources/AppIcon.icns"
+        echo "==> Copied fallback AppIcon.icns"
+    else
+        echo "ERROR: AppIcon.icns was not generated and no fallback icon exists" >&2
+        exit 1
+    fi
+fi
+
 # Copy SPM resource bundles into Contents/Resources/ — putting them at the .app
 # root breaks Developer ID signing with "unsealed contents present in the bundle
 # root". Bundle.module already checks resourceURL, so this layout loads fine.
@@ -144,6 +158,12 @@ echo "==> App bundle assembled at $APP_DIR"
 # ---------------------------------------------------------------------------
 SIGN_IDENTITY="${SIGN_IDENTITY:-Developer ID Application: xuteng wang (K46MBL36P8)}"
 APP_SIGNED=false
+
+# Downloaded frameworks and local Finder operations can leave quarantine,
+# provenance, or FinderInfo xattrs on nested executables. Codesign rejects those
+# as "resource fork, Finder information, or similar detritus not allowed", so
+# clear them before sealing the bundle.
+find "$APP_DIR" -exec xattr -c {} + 2>/dev/null || true
 
 adhoc_sign_app_for_local_permissions() {
     echo "==> Ad-hoc signing app with local entitlements"
